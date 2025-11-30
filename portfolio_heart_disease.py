@@ -10,6 +10,10 @@ Original file is located at
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import statistics as st
+
+from sklearn import model_selection
+from sklearn import tree
 
 import os
 
@@ -24,7 +28,7 @@ file_names = os.listdir("/content/drive/MyDrive/Dataset/Heart_desease/database")
 for i in file_names:
   dfs.append(read_files(i))
 
-dfs[2]
+# dfs[2]
 
 df_full = pd.concat(dfs).reset_index(drop=True)
 df_full.columns = ["age", "sex", "chest_pain", "restbps", "chol",
@@ -51,19 +55,17 @@ df_full
 #         -- Value 3: downsloping
 # thal: 3 = normal; 6 = fixed defect; 7 = reversable defect
 
-df_full[df_full["restbps"].isna()].index.tolist()
+# df_full[df_full["restbps"].isna()].index.tolist()
 
-# Data explore
+# Data pre-processing
 
 # Solving target column first
-
 df_full["heart_disease"] = df_full["heart_disease"].apply(lambda x: 1 if x > 0 else 0)
 
 df_full["heart_disease"].value_counts()
 
 # Verifying 0s
 print((df_full == 0).sum())
-print(df_full[df_full == 0].groupby('heart_disease')['sex'].count())
 
 # Starting by replacing non-sense 0s by NaNs
 df_full["chol"] = df_full["chol"].replace(0, np.nan)
@@ -71,26 +73,33 @@ df_full["restbps"] = df_full["restbps"].replace(0, np.nan)
 
 print(df_full.isna().sum())
 
+# Summary global
+
 summary = df_full.groupby(by="heart_disease").agg(["mean", "median"]).T
 summary["abs_diff"] = summary[0] - summary[1]
 summary['diff_rel'] = summary[0] / summary[1]
 summary
 
+# Numerical features preprocessing
+
+# Summary by male
 summary_male = df_full[df_full["sex"] == 1].groupby(by="heart_disease")[["restbps", "chol", "max_heart_rate", "oldpeak"]].agg(["mean", "median"]).T
 summary_male["abs_diff"] = summary_male[0] - summary_male[1]
 summary_male['diff_rel'] = summary_male[0] / summary_male[1]
 summary_male
 
+# Summary by female
 summary_female = df_full[df_full["sex"] == 0].groupby(by="heart_disease")[["restbps", "chol", "max_heart_rate", "oldpeak"]].agg(["mean", "median"]).T
 summary_female["abs_diff"] = summary_female[0] - summary_female[1]
 summary_female['diff_rel'] = summary_female[0] / summary_female[1]
 summary_female
 
+# Summary by sex, chest pain type and heart disease
+
 summary_sex_cp = df_full.groupby(by=["sex", "chest_pain", "heart_disease"])[["restbps", "chol", "max_heart_rate", "oldpeak"]].agg(["mean", "median"])
-# summary_sex_cp["abs_diff"] = summary_sex_cp[0] - summary_sex_cp[1]
-# summary_sex_cp['diff_rel'] = summary_sex_cp[0] / summary_sex_cp[1]
 summary_sex_cp
 
+# Numerical data imputation
 nums1 = ["restbps","chol","max_heart_rate","oldpeak"]
 
 for i in nums1:
@@ -101,3 +110,78 @@ for i in nums1:
 
 print(df_full.isna().sum())
 # df_full.loc[[393,610,620,623,626,627,633,635,639,641,645,648,654,655,657,665,666,669,674,684,686,691,693,706,707,708,709,710,711,712,716,717,721,726,730,733,734,738,739,741,742,744,746,752,755,756,757,758,760,761,764,765,771,778,782,793,795,799,914]]
+
+# Categorical features preprocessing
+
+summary_sex_cp_cat = df_full.groupby(by=["sex", "chest_pain", "heart_disease"])[["fast_blood_sug", "rest_electcard", "exc_angina", "slope", "n_fl_maj_ves", "thal"]].agg(lambda x: x.mode())
+summary_sex_cp_cat
+
+# sex (1 = male; 0 = female)
+# chest_pain: chest pain type
+#         -- Value 1: typical angina
+#         -- Value 2: atypical angina
+#         -- Value 3: non-anginal pain
+#         -- Value 4: asymptomatic
+# fast_blood_sug: (fasting blood sugar > 120 mg/dl)  (1 = true; 0 = false)
+# rest_electcard: resting electrocardiographic results
+#         -- Value 0: normal
+#         -- Value 1: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV)
+#         -- Value 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+# exc_angina: exercise induced angina (1 = yes; 0 = no)
+# slope: the slope of the peak exercise ST segment
+#         -- Value 1: upsloping
+#         -- Value 2: flat
+#         -- Value 3: downsloping
+# thal: 3 = normal; 6 = fixed defect; 7 = reversable defect
+
+nums2 = ["fast_blood_sug", "rest_electcard", "exc_angina", "slope", "n_fl_maj_ves", "thal"]
+
+for i in nums2:
+    # Only first value of mode is considered (ex: n_fl_maj_ves with [1.0, 2.0]). If the group is empty, return NaNs
+    df_full[i] = df_full[i].fillna(
+        df_full.groupby(['sex', 'chest_pain', 'heart_disease'])[i]
+               .transform(lambda x: x.mode().iloc[0] if not x.mode().empty else np.nan)
+    )
+
+print(df_full.isna().sum())
+
+df_full
+
+df_full[df_full.isna().any(axis=1)].index.tolist()
+
+df_full = df_full.dropna(how="any").reset_index(drop=True)
+df_full.isna().sum()
+
+# Using SEMMA (SAS) approach
+# Sample
+
+features = df_full.columns[0:-1]
+target = "heart_disease"
+
+# We use stratify=y to ensure the train and test sets have the same proportion
+X,y = df_full[features], df_full[target]
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, random_state=42, test_size=0.15, stratify=y)
+
+# Checking the distribution of the target variable in train and test sets
+# w/o stratify -> train 54.4% vs test 60.1%
+# with stratify -> train 55% vs test 55%
+
+print(f"Overall target rate {y.mean():.4f}")
+print(f"Train target rate {y_train.mean():.4f}")
+print(f"Test target rate {y_test.mean():.4f}")
+
+# Explore
+
+# feature_importances
+tree = tree.DecisionTreeClassifier(random_state=42)
+tree.fit(X_train, y_train)
+
+# Cumsum to capture the importances
+feature_importances = (pd.Series(tree.feature_importances_,
+                                 index=X_train.columns)
+                      .sort_values(ascending=False)
+                      .reset_index()
+                       )
+feature_importances['acum'] = feature_importances[0].cumsum()
+
+feature_importances
