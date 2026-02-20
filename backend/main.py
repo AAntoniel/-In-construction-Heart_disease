@@ -4,8 +4,8 @@ import numpy as np
 from pydantic import BaseModel
 import pandas as pd
 
-with open("model_heart_dis.pkl", "rb") as f:
-    model = pd.read_pickle("model_heart_dis.pkl")
+with open("backend/model_heart_dis.pkl", "rb") as f:
+    model = pd.read_pickle("backend/model_heart_dis.pkl")
 
 app = FastAPI(title="Heart Disease Risk Assessment API")
 
